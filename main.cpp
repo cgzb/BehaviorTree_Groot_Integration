@@ -1,9 +1,11 @@
+#include <QApplication>
+#include <thread>
+#include <chrono>
+#include <iostream>
 #include "behaviortree_cpp_v3/bt_factory.h"
 #include "behaviortree_cpp_v3/loggers/bt_zmq_publisher.h"
 #include "behaviortree_cpp_v3/action_node.h"
-#include <iostream>
-#include <chrono>
-#include <thread>
+#include "custom_window.h"
 
 // Simple sleep action for v3
 class SleepAction : public BT::SyncActionNode
@@ -66,7 +68,7 @@ static const char* xml_text = R"(
  </root>
  )";
 
-int main()
+void behaviorTreeThread()
 {
     BT::BehaviorTreeFactory factory;
 
@@ -76,15 +78,37 @@ int main()
     auto tree = factory.createTreeFromText(xml_text);
 
     // Connect to Groot (v1) via ZMQ
-    // Default ports are usually used by the publisher
+    // The publisher must be kept alive while the tree is running.
+    // The ZMQ publisher opens a server socket.
+    // Groot will connect to this socket.
     BT::PublisherZMQ publisher(tree);
 
-    std::cout << "BehaviorTree v3 started. Connect with Groot to visualize." << std::endl;
+    std::cout << "BehaviorTree v3 thread started." << std::endl;
 
     while(true)
     {
         tree.tickRoot();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    QApplication app(argc, argv);
+
+    // Start Behavior Tree in a separate thread
+    // Note: ZMQ publisher might not be thread safe if accessed from another thread
+    // but here the publisher and the tree tick are in the same thread (bt_thread).
+    // The Qt loop is in the main thread.
+    // Groot (the client) connects via socket, so it's inter-process or inter-thread safe via ZMQ.
+    std::thread bt_thread(behaviorTreeThread);
+    bt_thread.detach();
+
+    // Create and show the main window with Groot embedded
+    CustomWindow window;
+    window.show();
+
+    std::cout << "Qt Application started. Groot embedded." << std::endl;
+
+    return app.exec();
 }
